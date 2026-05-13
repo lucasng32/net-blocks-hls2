@@ -36,6 +36,20 @@ static ap_uint<16> get_checksum(const ap_uint<NB_DATA_WIDTH>& data) {
     return data.range(CHECKSUM_HI, CHECKSUM_LO);
 }
 
+// ── expected checksum ────────────────────────────────────────────────────────
+//
+// After payload_action copies total_len → computed_total_len, the checksum
+// module computes the Internet one's complement checksum over the 3 header
+// 16-bit words: {total_len, computed_total_len, 0 (checksum field cleared)}.
+//
+static ap_uint<16> expected_checksum(ap_uint<16> total_len) {
+    // computed_total_len = total_len (set by payload_action)
+    ap_uint<17> sum = total_len;
+    sum = sum + total_len;  // add computed_total_len
+    if (sum.bit(16)) sum = sum.range(15, 0) + 1;  // add checksum(0) — no-op
+    return ~sum.range(15, 0);  // one's complement
+}
+
 // ── beat construction ───────────────────────────────────────────────────────
 
 static axis_word make_header_beat(ap_uint<16> total_len,
@@ -152,9 +166,10 @@ static bool test_single_beat() {
                (unsigned)get_computed_total_len(buf[0].data));
         ok = false;
     }
-    if (get_checksum(buf[0].data) != 0x0000) {
-        printf("[TB] single-beat: checksum = 0x%04x, expected 0x0000\n",
-               (unsigned)get_checksum(buf[0].data));
+    if (get_checksum(buf[0].data) != expected_checksum(0xABCD)) {
+        printf("[TB] single-beat: checksum = 0x%04x, expected 0x%04x\n",
+               (unsigned)get_checksum(buf[0].data),
+               (unsigned)expected_checksum(0xABCD));
         ok = false;
     }
     return ok;
@@ -179,7 +194,7 @@ static bool test_multi_beat_passthrough() {
     bool ok = true;
     if (get_total_len(buf[0].data) != 0xBEEF)          ok = false;
     if (get_computed_total_len(buf[0].data) != 0xBEEF) ok = false;
-    if (get_checksum(buf[0].data) != 0x0000)           ok = false;
+    if (get_checksum(buf[0].data) != expected_checksum(0xBEEF)) ok = false;
 
     for (int i = 0; i < payload_beats; ++i) {
         ap_uint<32> expected = 0xA000 + i;
@@ -216,8 +231,10 @@ static bool test_consecutive_packets() {
     bool ok = true;
     if (get_total_len(buf[0].data) != 0xAAAA) ok = false;
     if (get_computed_total_len(buf[0].data) != 0xAAAA) ok = false;
+    if (get_checksum(buf[0].data) != expected_checksum(0xAAAA)) ok = false;
     if (get_total_len(buf[1].data) != 0xBBBB) ok = false;
     if (get_computed_total_len(buf[1].data) != 0xBBBB) ok = false;
+    if (get_checksum(buf[1].data) != expected_checksum(0xBBBB)) ok = false;
     return ok;
 }
 
@@ -240,7 +257,7 @@ static bool test_large_payload() {
     bool ok = true;
     if (get_total_len(buf[0].data) != 0xCCCC)          ok = false;
     if (get_computed_total_len(buf[0].data) != 0xCCCC) ok = false;
-    if (get_checksum(buf[0].data) != 0x0000)           ok = false;
+    if (get_checksum(buf[0].data) != expected_checksum(0xCCCC)) ok = false;
     if (buf[n - 1].last != 1) {
         printf("[TB] large-payload: last flag missing\n");
         ok = false;
@@ -278,24 +295,28 @@ static bool test_mixed_packets() {
     // Packet 1: single-beat, total_len=0x1111
     if (get_total_len(buf[idx].data) != 0x1111)      ok = false;
     if (get_computed_total_len(buf[idx].data) != 0x1111) ok = false;
+    if (get_checksum(buf[idx].data) != expected_checksum(0x1111)) ok = false;
     if (!buf[idx].last) ok = false;
     idx += 1;
 
     // Packet 2: 3 beats, total_len=0x2222
     if (get_total_len(buf[idx].data) != 0x2222) ok = false;
     if (get_computed_total_len(buf[idx].data) != 0x2222) ok = false;
+    if (get_checksum(buf[idx].data) != expected_checksum(0x2222)) ok = false;
     if (buf[idx + 2].last != 1) ok = false;
     idx += 3;
 
     // Packet 3: single-beat, total_len=0x3333
     if (get_total_len(buf[idx].data) != 0x3333) ok = false;
     if (get_computed_total_len(buf[idx].data) != 0x3333) ok = false;
+    if (get_checksum(buf[idx].data) != expected_checksum(0x3333)) ok = false;
     if (!buf[idx].last) ok = false;
     idx += 1;
 
     // Packet 4: 6 beats, total_len=0x4444
     if (get_total_len(buf[idx].data) != 0x4444) ok = false;
     if (get_computed_total_len(buf[idx].data) != 0x4444) ok = false;
+    if (get_checksum(buf[idx].data) != expected_checksum(0x4444)) ok = false;
     if (buf[idx + 5].last != 1) ok = false;
 
     return ok;
