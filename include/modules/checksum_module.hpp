@@ -5,72 +5,77 @@
 namespace nb {
 
 struct checksum_module {
-    // Fields contributed to the metadata struct.
-    // 'checksum' is serialized into the packet header.
     static constexpr field_def fields[] = {
         {"checksum", 16},
     };
 
     static constexpr const char* name   = "checksum";
     static constexpr const char* header = "modules/checksum_module.hpp";
+    static constexpr bool needs_data    = false;
 
-    // Internet checksum helpers — one's complement, 16-bit words.
-    //
-    // Algorithm:
-    //   1. Clear checksum field to 0
-    //   2. Sum all header 16-bit words (this function) with wrap-around carry
-    //   3. Take one's complement → store in checksum
-    //
-    // NOTE: The original net-blocks-hls also supports full_packet mode,
-    // which requires scanning the payload data stream.  In the current
-    // Parser-Match-Action-Deparser architecture the data stream bypasses
-    // action modules, so only header_only is implemented here.  Full-packet
-    // would route the data stream through the checksum module.
+    // ── one's complement helpers ────────────────────────────────────
 
-    // Add a 16-bit word into the running one's complement accumulator.
     static ap_uint<17> add_carry(ap_uint<17> sum, ap_uint<16> word) {
 #pragma HLS INLINE
         ap_uint<17> r = sum + word;
-        // wrap-around carry: if overflow, add 1 to low 16 bits
-        if (r.bit(16)) r = r.range(15, 0) + 1;
+        if (r.bit(16)) r = r.range(15, 0) + ap_uint<17>(1);
         return r;
     }
 
+    static void add_field(ap_uint<17>& sum, ap_uint<16> f) {
+#pragma HLS INLINE
+        sum = add_carry(sum, f);
+    }
+
+    template <int W>
+    static void add_wide(ap_uint<17>& sum, const ap_uint<W>& f) {
+#pragma HLS INLINE
+        for (int i = 0; i < W / 16; ++i)
+            sum = add_carry(sum, f.range(i * 16 + 15, i * 16));
+    }
+
+    // ── process (header_only, metadata only) ────────────────────────
+    //
+    // Runs LAST in the metadata chain (after all header mutations).
+    // Computes the Internet checksum over all header 16-bit words
+    // with the checksum field treated as zero.
+    //
+    // Full-packet mode (summing payload data) requires routing the
+    // data stream through this module — deferred to avoid the
+    // metadata/data timing deadlock in the DATAFLOW pipeline.
+
     template <typename Meta>
-    static void process(hls::stream<Meta>& meta_in, hls::stream<Meta>& meta_out) {
+    static void process(hls::stream<Meta>& meta_in,
+                        hls::stream<Meta>& meta_out) {
 #pragma HLS PIPELINE II = 1
+        if (meta_in.empty()) return;
         Meta m = meta_in.read();
 
-        // Save the original checksum (for ingress verification — future use)
-        ap_uint<16> saved = m.checksum;
-
-        // Clear checksum field before computing
-        m.checksum = 0;
-
-        // ── one's complement sum over all header 16-bit words ──────────
         ap_uint<17> sum = 0;
 
-        // total_len         — bits 15:0,  1 word
-        sum = add_carry(sum, m.total_len);
+        add_field(sum, m.total_len);
+        add_field(sum, m.computed_total_len);
+        add_field(sum, ap_uint<16>(0));                // checksum word
+        add_field(sum, m.ethertype);
+        // conditional — present if ethertype==0x0800
+        add_wide (sum, m.ipv4_src);
+        add_wide (sum, m.ipv4_dst);
+        // conditional — present if ethertype==0x8100
+        add_field(sum, m.vlan_tci);
+        // flow identifiers
+        add_wide (sum, m.dst_id);
+        add_wide (sum, m.src_id);
+        add_wide (sum, m.sequence_number);
+        add_wide (sum, m.ack_sequence_number);           // reliable
+        {
+            ap_uint<16> rw = (ap_uint<16>(m.ip_protocol) << 8)
+                           |  ap_uint<16>(m.ttl);
+            add_field(sum, rw);
+        }
+        add_wide (sum, m.src_addr);
+        add_wide (sum, m.dst_addr);
 
-        // computed_total_len — bits 31:16, 1 word
-        sum = add_carry(sum, m.computed_total_len);
-
-        // checksum          — bits 47:32, 1 word (currently 0)
-        sum = add_carry(sum, m.checksum);
-
-        // ═══ additional fields from other modules go here ═══
-        // When a new module adds metadata fields, add them below.
-        // For fields wider than 16 bits, split into 16-bit chunks:
-        //   sum = add_carry(sum, m.long_field.range(15, 0));
-        //   sum = add_carry(sum, m.long_field.range(31, 16));
-
-        // One's complement
-        ap_uint<16> computed = ~sum.range(15, 0);
-
-        // Write checksum into metadata
-        m.checksum = computed;
-
+        m.checksum = ~sum.range(15, 0);
         meta_out.write(m);
     }
 };

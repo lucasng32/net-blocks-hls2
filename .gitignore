@@ -1,6 +1,6 @@
 build/
 output/
 hls_project/nb_hls_proj/
+hls_project/min_proj/
 hls_project/logs/
-hls_project/*.log
 logs/
