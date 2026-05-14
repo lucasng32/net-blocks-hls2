@@ -158,11 +158,11 @@ static void emit_h_header(std::ofstream& out) {
         aw.data = data;
         aw.last = last;
         aw.keep = -1;
+        aw.strb = -1; // <--- ADD THIS LINE
         return aw;
     }
 };
 typedef hls::stream<axis_wordi> axis_streai;
-
 )";
 
     for (auto& mod : g_modules)
@@ -317,6 +317,7 @@ static void emit_deparser(std::ofstream& out) {
     static State state = HDR;
 
     if (state == HDR) {
+        if (data_in.empty() || meta_in.empty()) return;
         axis_wordi wi = data_in.read();
         axis_word word = wi;
         nb_metadata m = meta_in.read();
@@ -334,6 +335,7 @@ static void emit_deparser(std::ofstream& out) {
         data_out.write(word);
         if (!word.last) state = PAY;
     } else {
+        if (data_in.empty()) return;
         axis_wordi wi = data_in.read();
         data_out.write(axis_word(wi));
         if (wi.last) state = HDR;

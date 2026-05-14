@@ -19,8 +19,8 @@ int main() {
         nb_hls_top(rx, tx);
 
     // Read and print output
-    while (tx.size() > 0) {
-        axis_word out = tx.read();
+    axis_word out;
+    while (tx.read_nb(out)) {
         printf("OUT: total_len=0x%04x computed=0x%04x checksum=0x%04x last=%d\n",
                (unsigned)out.data.range(15,0),
                (unsigned)out.data.range(31,16),

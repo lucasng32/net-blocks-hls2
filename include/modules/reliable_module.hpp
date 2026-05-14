@@ -24,6 +24,7 @@ struct reliable_module {
         static ap_uint<1> slot_valid[max_connections][redelivery_depth];
 #pragma HLS BIND_STORAGE variable = slot_valid impl = LUTRAM
 
+        if (meta_in.empty()) return;
         Meta m = meta_in.read();
         ap_uint<32> ack_seq = m.ack_sequence_number;
         ap_uint<32> conn    = ap_uint<32>(m.src_id);

@@ -17,6 +17,7 @@ struct identifier_module {
     template<typename Meta>
     static void process(hls::stream<Meta>& mi, hls::stream<Meta>& mo) {
 #pragma HLS PIPELINE II=1
+        if (mi.empty()) return;
         Meta m=mi.read(); mo.write(m);
     }
 };
@@ -27,6 +28,7 @@ struct inorder_module {
     template<typename Meta>
     static void process(hls::stream<Meta>& mi, hls::stream<Meta>& mo) {
 #pragma HLS PIPELINE II=1
+        if (mi.empty()) return;
         Meta m=mi.read();
         static ap_uint<32> seq=1010; m.sequence_number=seq; ++seq; mo.write(m);
     }
@@ -38,6 +40,7 @@ struct routing_module {
     template<typename Meta>
     static void process(hls::stream<Meta>& mi, hls::stream<Meta>& mo) {
 #pragma HLS PIPELINE II=1
+        if (mi.empty()) return;
         Meta m=mi.read(); if (m.ttl>0) m.ttl=m.ttl-1; mo.write(m);
     }
 };
