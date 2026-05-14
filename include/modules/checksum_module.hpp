@@ -48,7 +48,6 @@ struct checksum_module {
     static void process(hls::stream<Meta>& meta_in,
                         hls::stream<Meta>& meta_out) {
 #pragma HLS PIPELINE II = 1
-        if (meta_in.empty()) return;
         Meta m = meta_in.read();
 
         ap_uint<17> sum = 0;

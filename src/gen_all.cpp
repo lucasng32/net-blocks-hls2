@@ -246,6 +246,7 @@ static void emit_parser(std::ofstream& out) {
     static ap_uint<NB_SHIFT_BITS> shift_buf;
     static int shift_fill = 0;
 
+    if (data_in.empty()) return;
     axis_word word = data_in.read();
 
     if (state == HDR) {
@@ -310,49 +311,32 @@ static void emit_deparser(std::ofstream& out) {
     out << R"(void nb_deparser(axis_streai& data_in, axis_stream& data_out,
                    hls::stream<nb_metadata>& meta_in) {
 #pragma HLS PIPELINE II = 1
+    // Single-phase: reads both data and meta in one call.
+    // Meta FIFOs are depth=64 to avoid DATAFLOW deadlock.
     enum State { HDR, PAY };
     static State state = HDR;
-    static ap_uint<NB_SHIFT_BITS> shift_buf;
-    static int shift_fill = 0;
 
     if (state == HDR) {
-        axis_wordi wi    = data_in.read();
-        axis_word  word  = wi;
-        nb_metadata m    = meta_in.read();
-
-        // Accumulate header beats into shift_buf (same order as parser)
-        shift_buf.range(shift_fill + NB_DATA_WIDTH - 1, shift_fill)
-            = word.data;
-        shift_fill += NB_DATA_WIDTH;
-
-        if (shift_fill >= NB_HEADER_BITS) {
-            // Write metadata fields back into shift_buf for the header beats
+        axis_wordi wi = data_in.read();
+        axis_word word = wi;
+        nb_metadata m = meta_in.read();
 )";
 
     for (auto& f : g_fields) {
         int hi = f.bit_offset + f.bit_width - 1;
         int lo = f.bit_offset;
-        out << INDENT << INDENT << INDENT
-            << "shift_buf.range(" << hi << ", " << lo
+        out << INDENT << INDENT
+            << "word.data.range(" << hi << ", " << lo
             << ") = m." << f.name << ";\n";
     }
 
     out << R"(
-            // Write header bits back into the first data beat
-            word.data.range(NB_HEADER_BITS - 1, 0)
-                = shift_buf.range(NB_HEADER_BITS - 1, 0);
-            shift_fill = 0;
-        }
-
         data_out.write(word);
-
-        if (!word.last && shift_fill == 0)
-            state = PAY;
+        if (!word.last) state = PAY;
     } else {
         axis_wordi wi = data_in.read();
         data_out.write(axis_word(wi));
-        if (wi.last)
-            state = HDR;
+        if (wi.last) state = HDR;
     }
 }
 

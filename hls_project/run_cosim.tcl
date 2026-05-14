@@ -11,5 +11,5 @@ set_part {xcu26-vsva1365-2LV-e}
 create_clock -period 10 -name default
 
 csynth_design
-cosim_design -rtl verilog -tool auto -trace_level all
+cosim_design -rtl verilog -tool auto
 exit
